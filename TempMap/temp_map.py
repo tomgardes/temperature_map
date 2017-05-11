@@ -21,8 +21,8 @@
  ***************************************************************************/
 """
 from PyQt4.QtCore import QSettings, QTranslator, qVersion, QCoreApplication
+from PyQt4 import QtGui, uic
 from PyQt4.QtGui import QAction, QIcon, QFileDialog, QMessageBox
-from PyQt4 import QtGui 
 # Initialize Qt resources from file resources.py
 import resources
 # Import the code for the dialog
@@ -34,12 +34,12 @@ from qgis.utils import *
 import processing
 from qgis.analysis import QgsRasterCalculator, QgsRasterCalculatorEntry
 from qgis import *
+import time 
+from progress import Ui_Form
+import sys 
 
 
-
-
-
-
+			
 class TempMap:
     """QGIS Plugin Implementation."""
 
@@ -79,6 +79,7 @@ class TempMap:
         
         self.toolbar = self.iface.addToolBar(u'TempMap')
         self.toolbar.setObjectName(u'TempMap')
+         
 		
         
 
@@ -153,6 +154,8 @@ class TempMap:
 
         # Create the dialog (after translation) and keep reference
         self.dlg = TempMapDialog()
+        #self.prg = Ui_Dialog() 
+        
 
         icon = QIcon(icon_path)
         action = QAction(icon, text, parent)
@@ -197,6 +200,7 @@ class TempMap:
             self.iface.removeToolBarIcon(action)
         # remove the toolbar
         del self.toolbar
+	
 		
     def outputICU(self) :
         """Define path to save output files"""
@@ -227,6 +231,7 @@ class TempMap:
 		self.dlg.bouton_regression.clicked.connect(self.outputRegression)
 		self.dlg.bouton_residus.clicked.connect(self.outputResidus)
 		self.dlg.bouton_modele.clicked.connect(self.outputModel)
+	
 		
 		# show the dialog
 		self.dlg.show()
@@ -237,7 +242,7 @@ class TempMap:
 		self.dlg.menu_field.clear()
 		self.dlg.menu_mapuce.clear()
 		self.dlg.menu_fraction.clear()
-		self.dlg.progressBar.setValue(0)
+		
 		
 				
 		#add layers to interface
@@ -309,8 +314,8 @@ class TempMap:
 		self.dlg.menu_temperature.currentIndexChanged.connect(layer_field) #connect layer_field method to temperature combo box 
 		self.dlg.checkBox.stateChanged.connect(state_changed) #connect state_changed method to checkBox 
 		
-		progress=self.dlg.progressBar #define progress bar widget added from ui file 
-		progress.setMaximum(100) #set maximum in percentage for progress bar 
+		
+		
 		
 		#Set 'help' pictures for each combo box 
 		pathIcon = resolve('help.png')
@@ -323,6 +328,8 @@ class TempMap:
 		self.dlg.infoResidus.setPixmap(QtGui.QPixmap(pathIcon))
 		self.dlg.infoModele.setPixmap(QtGui.QPixmap(pathIcon))
 		self.dlg.infoFrac.setPixmap(QtGui.QPixmap(pathIcon))
+		self.dlg.infoResolution.setPixmap(QtGui.QPixmap(pathIcon))
+
 		
 		
 
@@ -332,13 +339,25 @@ class TempMap:
 		result = self.dlg.exec_()
         # See if OK was pressed
 		if result:
+		
+				tps1 = time.clock() #initialize time count 
+				
+				#show progression window when "OK" is pressed
+				widget = QtGui.QWidget()
+				ui = Ui_Form()
+				ui.setupUi(widget)
+				widget.show() 
+				progress=ui.progressBar #define progress bar widget added from ui file 
+				progress.setMaximum(100) #set maximum in percentage for progress bar 
+				
+
 			
 		
 				#Check QGIS version 
-				version = qgis.utils.QGis.QGIS_VERSION
-				versionSplit = version.split('.')
-				NumVersion = versionSplit[1]
-				qgisVersion = int(NumVersion)
+				version = qgis.utils.QGis.QGIS_VERSION #get QGIS version as string 
+				versionSplit = version.split('.') #split version string 
+				NumVersion = versionSplit[1] #get only number of version after the 2.xx (get the "xx")
+				qgisVersion = int(NumVersion) #get version number as integer 
 
 									
 				#Define outputs path 
@@ -347,6 +366,7 @@ class TempMap:
 				outputPath3 = self.dlg.barre_residus.text()
 				outputPath4 = self.dlg.barre_modele.text()
 				
+				#Set default parameters values
 
 				
  
@@ -374,7 +394,7 @@ class TempMap:
 				elif self.dlg.menu_fraction.currentText() == "" and BoxChecked :
 					QMessageBox.warning(None,"Temperature Map", str("Veuillez indiquer un raster de fraction de ville valide"))
 				#check Mapuce combo box 
-				elif self.dlg.menu_mapuce.currentText() == "" :
+				elif self.dlg.menu_mapuce.currentText() == "" and BoxChecked == False :
 					QMessageBox.warning(None, "Temperature Map", str("Veuillez indiquer une couche de donnees MaPUCE valide"))
 				#check temperature combo box
 				elif self.dlg.menu_temperature.currentText() == "" :
@@ -393,14 +413,17 @@ class TempMap:
 					fields=selectedLayer2.pendingFields()
 					fieldnames=[field.name() for field in fields]	
 					
-					#set layers and fields depending of current value of combo boxes 
+					#set layers and fields depending of current values of combo boxes 
 					fieldTemp = fieldnames[selectedFieldIndex]
 					field = fields[selectedFieldIndex]
 					stations  = pointLayerList[selectedTempIndex]
 					mnt = rasterLayerList[selectedMntIndex]			
 					mapuce=polyLayerList[selectedMapuceIndex] 
 					frac_user=rasterLayerList[selectedFracIndex]
-					crsRefLayer = layers[0]
+					resolution=self.dlg.spinBox_resolution.value()
+
+					print(resolution)
+					crsRefLayer = layers[0] #get crs value from the first layer  
 					idCrsRef = crsRefLayer.crs().authid()
 					epsgSplit = idCrsRef.split(':')
 					epsg0 = epsgSplit[1]
@@ -414,9 +437,8 @@ class TempMap:
 					print('ESPG=', epsg)	
 					print('field type :', field.typeName() ) 
 					
-					"""if field.typeName() != 'Integer' and field.typeName() != 'Real' :
-						QMessageBox.warning(None, "Temperature Map", str("Le champ de temperatures doit etre de type numerique"))"""
 					
+					#============PROCESSING===========================================
 									
 					emprise=processing.runalg("qgis:fixeddistancebuffer", stations, 100,5,1, None) #100m buffer on stations point layer 
 					objEmp = processing.getObject(emprise['OUTPUT']) #recuperer buffer stations sous forme de QgsVectorLayer
@@ -425,7 +447,7 @@ class TempMap:
 					replace = coordinates.replace(":",",",1) #formater la chaine pour utilisation dans la fonction clip raster by extent
 					split = replace.split(",") #split de la chaine pour re-composition...
 					extent= split[0]+","+split[2]+","+split[1]+","+split[3] #...concatenation pour que l ordre des coordonnes decrivant l emprise corresponde a l ordre utilise dans clip raster by extent
-					progress.setValue(10)
+					progress.setValue(30)
 					print(extent)
 						
 						
@@ -455,32 +477,39 @@ class TempMap:
 					mntPathTest = objMntClip.dataProvider().dataSourceUri()
 					iface.addRasterLayer(mntPathTest, "MNT_CLIP")
 					
-					mntClip = processing.runalg("saga:resampling", mntExtent['OUTPUT'], True, 0,0, extent,100,None) 
-					
+					mntClip = processing.runalg("saga:resampling", mntExtent['OUTPUT'], True, 0,0, extent,100,None)
+										
 					
 					if self.dlg.checkBox.isChecked() :
-						resamplFracVille = processing.runalg("saga:resampling", frac_user, True, 0,0, extent,100,None) #dimensionnement de la fraction de ville utilisateur
+					
+						getPathTemp = objEmp.dataProvider().dataSourceUri() #recuperation du chemin d un fichier stocke comme temporaire
+						splitPathTemp= getPathTemp[:-10] #suppression du nom du fichier en fin de chaine
+						outputCalc2 = splitPathTemp + 'icu.tif' #remplacement du nom du fichier par le nom de la sortie voulu pour le raster calculator
+						resamplFracVille = processing.runalg("saga:resampling", frac_user, True, 0,0, extent,100,outputCalc2) #dimensionnement de la fraction de ville utilisateur
 						print ("Utilisation fraction perso")
 						progress.setValue(50)
+						#iface.addRasterLayer(resamplFracVille['USER_GRID'], "FRAC VILLE")
+						#iface.addRasterLayer(mntClip['USER_GRID'], "MNT_CLIP")
 					
 					else :
 					
 						#Construction de la fraction de ville
 						
-						if qgisVersion > 14 :
+						if qgisVersion <= 14 : #check qgisVersion used 
+							#Allow to get around a difference between version following 2.14 : gdal rasterize algorithm take one more argument in the latests versions. 
 							#Rasterisation a 100m de resolution a partir des donnees mapuce
-							build= processing.runalg("gdalogr:rasterize",mapuce,"BUILD_DENS",1,100,100,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable densite de bati
-							road= processing.runalg("gdalogr:rasterize",mapuce,"ROAD_DENS",1,100,100,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable densite de route
+							build= processing.runalg("gdalogr:rasterize",mapuce,"BUILD_DENS",1,resolution,resolution,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable densite de bati
+							road= processing.runalg("gdalogr:rasterize",mapuce,"ROAD_DENS",1,resolution,resolution,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable densite de route
 							env_area=processing.runalg("qgis:fieldcalculator", mapuce, "ENV/AREA",0,8,3,1,"EXT_ENV_AR/$AREA",None)#calcul de rapport surface enveloppe exterieure / surface de l usr
-							env= processing.runalg("gdalogr:rasterize",env_area['OUTPUT_LAYER'],"ENV/AREA",1,100,100,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable surface enveloppe exterieure bati/surface
+							env= processing.runalg("gdalogr:rasterize",env_area['OUTPUT_LAYER'],"ENV/AREA",1,resolution,resolution,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable surface enveloppe exterieure bati/surface
 						
 						else : 
 					
 							#Rasterisation a 100m de resolution a partir des donnees mapuce
-							build= processing.runalg("gdalogr:rasterize",mapuce,"BUILD_DENS",1,100,100,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable densite de bati
-							road= processing.runalg("gdalogr:rasterize",mapuce,"ROAD_DENS",1,100,100,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable densite de route
+							build= processing.runalg("gdalogr:rasterize",mapuce,"BUILD_DENS",1,resolution,resolution,extent,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable densite de bati
+							road= processing.runalg("gdalogr:rasterize",mapuce,"ROAD_DENS",1,resolution,resolution,extent,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable densite de route
 							env_area=processing.runalg("qgis:fieldcalculator", mapuce, "ENV/AREA",0,8,3,1,"EXT_ENV_AR/$AREA",None)#calcul de rapport surface enveloppe exterieure / surface de l usr
-							env= processing.runalg("gdalogr:rasterize",env_area['OUTPUT_LAYER'],"ENV/AREA",1,100,100,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable surface enveloppe exterieure bati/surface
+							env= processing.runalg("gdalogr:rasterize",env_area['OUTPUT_LAYER'],"ENV/AREA",1,resolution,resolution,extent,False,5,"",4,75,6,1,False,0,"",None)#rasterisation variable surface enveloppe exterieure bati/surface
 				
 						#Addition des raster pour former la fraction de ville 
 						entries=[] #initialisation de la liste des entrees 
@@ -489,7 +518,6 @@ class TempMap:
 						objBuild=processing.getObject(build['OUTPUT']) #recuperer raster sous forme d objet Qgis
 						rast1.raster=objBuild #definir le raster
 						rast1.bandNumber=1 #definir la bande du raster a utiliser
-
 						entries.append(rast1) #ajout du raster aux entrees
 						rast2 = QgsRasterCalculatorEntry() #meme demarche avec deuxieme raster
 						objRoad=processing.getObject(road['OUTPUT'])
@@ -512,18 +540,18 @@ class TempMap:
 
 						calc=QgsRasterCalculator('rast@1+rast@2+rast@3', outputCalc ,'GTiff', objBuild.extent(), objBuild.width(), objBuild.height(),entries) #calculatrice raster
 						calc.processCalculation() #execution du calcul
-							
-							
-							
-							
-					#Dimensionnement des rasters pour interpolation
-					resamplFracVille = processing.runalg("saga:resampling", outputCalc, True, 0,0, extent,100,outputCalc2) #dimensionnement de la fraction de ville mapuce
-					iface.addRasterLayer(outputCalc2, 'FRACTION_DE_VILLE')
+										
+												
+						#Dimensionnement des rasters pour interpolation
+						resamplFracVille = processing.runalg("saga:resampling", outputCalc, True, 0,0, extent,resolution,outputCalc2) #dimensionnement de la fraction de ville mapuce
+						iface.addRasterLayer(outputCalc2, 'FRACTION_DE_VILLE')
+						
+					
 					progress.setValue(50)
 							
-						
-							
+											
 
+											
 					print("jusqu ici tout va bien")
 
 					#==================================================================
@@ -534,9 +562,11 @@ class TempMap:
 					objMnt = processing.getObject(mntClip['USER_GRID']) #recuperation du mnt sous forme d objet QGIS
 					pathMnt = objMnt.dataProvider().dataSourceUri() #recuperation du chemin d acces au mnt decoupe, dimensionne pour usage dans la regression
 					print(pathMnt)
+					iface.addRasterLayer(pathMnt, "MNT_INPUT_LMR")
 					objFracVille = processing.getObject(resamplFracVille['USER_GRID']) 
 					pathFracVille = objFracVille.dataProvider().dataSourceUri() #recuperation du chemin d acces a la fraction de ville
 					print(pathFracVille)
+					iface.addRasterLayer(pathFracVille, "FRAC_INPUT_LMR") 
 					inputs = pathMnt + ';' + pathFracVille #definition de variables en entree pour l algorithme de regression lineaire
 					print ("inputs lmr =", inputs) #verification
 
@@ -545,6 +575,7 @@ class TempMap:
 					splitStationsPath = stationsPath.split("|") #formatage du chemin pour usage dans l algorithme
 					stationsPathFinal = splitStationsPath[0] #formatage du chemin pour usage dans l algorithme
 					print("stations pour lmr =", stationsPathFinal)#verification
+					#print ("inputs =", inputs, "MNT =", pathMnt, "FracVille =", pathFracVille, "ObjMnt =", objMnt, "ObjFrac =", objFracVille) 
 					lmr = processing.runalg("saga:multipleregressionanalysispointsgrids", inputs, stationsPathFinal,fieldTemp,0,True,True,0,5,5,None,outputPath4,None,None,outputPath2) #regression lineaire multiple
 					iface.addRasterLayer(outputPath2, "REGRESSION")
 					regObj = processing.getObject(outputPath2)
@@ -559,7 +590,7 @@ class TempMap:
 					pathResiduals = residualsObj.dataProvider().dataSourceUri()
 					splitPathResiduals = pathResiduals.split("|")
 					residualsPathFinal = splitPathResiduals[0]
-					print("path resdiual kriging =", residualsPathFinal)
+					#print("path resdiual kriging =", residualsPathFinal)
 					ordinaryKriging = processing.runalg("saga:ordinarykrigingglobal",residualsPathFinal,"RESIDUAL",1,False,False,100,-1,100,1,"a + b * x",True,extent,100,0,outputPath3,None) #krigeage ordinaire des residus
 					iface.addRasterLayer(outputPath3, "RESIDUS")
 					resObj = processing.getObject(outputPath3)
@@ -602,4 +633,7 @@ class TempMap:
 						
 					my_crs = core.QgsCoordinateReferenceSystem(epsg, core.QgsCoordinateReferenceSystem.EpsgCrsId)
 					iface.mapCanvas().mapRenderer().setDestinationCrs(my_crs)
-
+					
+					tps2 = time.clock()
+					duration = round(tps2 - tps1,3)
+					QMessageBox.information(None, "Temperature Map", "Traitement effectue en "+str(duration)+"s")
